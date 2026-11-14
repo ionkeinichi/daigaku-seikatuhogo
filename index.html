@@ -469,9 +469,42 @@
   #grid td.period-label .period-time { font-size: 9px; font-weight: 400; color: var(--muted); }
   /* 登録のないコマも、枠として見えるようにする */
   #grid td .cell:not(.filled) { min-height: 58px; }
+
+  /* ===== ログイン画面・保存状況 ===== */
+  body:not(.app-ready) .wrap { display: none; }
+  .auth-screen { position: fixed; inset: 0; background: var(--bg); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 24px; overflow: auto; }
+  .auth-card { width: 100%; max-width: 360px; }
+  .auth-card h2 { font-size: 30px; font-weight: 700; margin: 0 0 6px; color: var(--text); }
+  .auth-sub { color: var(--muted); font-size: 14px; margin: 0 0 20px; }
+  .auth-card input { width: 100%; box-sizing: border-box; padding: 12px 14px; border: none; border-radius: 10px; background: var(--fill); color: var(--text); font-size: 16px; margin-bottom: 10px; }
+  .auth-card button { width: 100%; padding: 12px; border: none; border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer; margin-bottom: 8px; }
+  .auth-card button:disabled { opacity: 0.5; }
+  #authLoginBtn { background: var(--accent); color: #fff; }
+  #authSignupBtn { background: var(--fill); color: var(--text); }
+  #authGuestBtn { background: none; color: var(--muted); font-weight: 500; font-size: 13px; }
+  .auth-msg { font-size: 13px; color: #ff3b30; min-height: 18px; margin: 0 0 8px; }
+  .auth-msg.ok { color: #34c759; }
+  .sync-status { position: fixed; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); font-size: 12px; background: var(--fill); color: var(--muted); padding: 6px 12px; border-radius: 999px; opacity: 0; transition: opacity 0.2s; z-index: 90; pointer-events: none; box-shadow: 0 1px 4px rgba(0,0,0,0.15); }
+  .sync-status.show { opacity: 1; }
+  .sync-status.err { color: #ff3b30; }
+  .user-email { font-size: 11px; color: var(--muted); align-self: center; }
 </style>
 </head>
 <body>
+<div class="auth-screen" id="authScreen" style="display:none;">
+  <div class="auth-card">
+    <h2>大学生活保護</h2>
+    <p class="auth-sub">ログインすると、授業や課題がどの端末でも見られます</p>
+    <input type="email" id="authEmail" placeholder="メールアドレス" autocomplete="email">
+    <input type="password" id="authPassword" placeholder="パスワード（6文字以上）" autocomplete="current-password">
+    <p class="auth-msg" id="authMsg"></p>
+    <button id="authLoginBtn">ログイン</button>
+    <button id="authSignupBtn">新規登録</button>
+    <button id="authGuestBtn">ログインせずに使う（保存はこのブラウザだけ）</button>
+  </div>
+</div>
+<div class="sync-status" id="syncStatus"></div>
+
 <div class="wrap">
   <header class="cal-header">
     <div>
@@ -506,6 +539,9 @@
     <button class="link-btn" id="openBreakSettings">休み期間</button>
     <button class="link-btn" id="openCancelByDate">休講</button>
     <button class="link-btn" id="addScheduleDayBtn" style="display:none;">スケジュール追加</button>
+    <button class="link-btn" id="logoutBtn" style="display:none;">ログアウト</button>
+    <button class="link-btn" id="goLoginBtn" style="display:none;">ログイン</button>
+    <span class="user-email" id="userEmail" style="display:none;"></span>
   </div>
 
   <p id="outOfTermNotice" class="out-of-term-notice" style="display:none;">この週は前期・後期の期間外のため、授業の登録・表示はできません</p>
@@ -746,7 +782,7 @@
   </div>
 </div>
 
-<script>
+<script type="text/plain" id="appCode">
   const DAYS = [1,2,3,4,5,6,7];
   const DAY_LABELS = {1:'月',2:'火',3:'水',4:'木',5:'金',6:'土',7:'日'};
   const PERIODS = [1,2,3,4,5,6];
@@ -2502,6 +2538,270 @@
   render();
   renderScheduleList();
   renderAssignList();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.93.0"></script>
+<script>
+(function () {
+  // ===== Supabase（ログインとデータ保存）=====
+  // ここに入れるのは、公開してよい「Publishable key」だけです（secret / service_role は絶対に入れない）
+  var SB_URL = 'https://tomocnvwfewgbyjtzrdw.supabase.co';
+  var SB_KEY = 'sb_publishable_3Sx8PPXHmxSvSmQ8au93DA_ZIFVcaFo';
+
+  var PREFIX = 'campus-lifeline-week1-';          // このアプリが使うlocalStorageのキーの先頭
+  var META_USER = 'campus-lifeline-meta-user';    // このブラウザのデータが誰のものか
+  var UNLINKED_BACKUP = 'campus-lifeline-unlinked-backup';
+
+  function $(id) { return document.getElementById(id); }
+  var sb = window.supabase.createClient(SB_URL, SB_KEY);
+
+  var currentUser = null;
+  var pending = {};          // まだサーバーへ送っていないキー
+  var flushTimer = null;
+  var statusTimer = null;
+  var lastSeen = {};         // キーごとに、最後に確認したサーバー側の更新時刻
+  var appStarted = false;
+
+  // ---- 画面の下に出す保存状況 ----
+  function setStatus(text, kind) {
+    var el = $('syncStatus');
+    el.textContent = text;
+    el.className = 'sync-status show' + (kind ? ' ' + kind : '');
+    clearTimeout(statusTimer);
+    if (kind === 'ok') statusTimer = setTimeout(function () { el.classList.remove('show'); }, 1500);
+  }
+
+  // ---- localStorageへの保存を横取りして、ログイン中はSupabaseにも送る ----
+  var origSet = Storage.prototype.setItem;
+  Storage.prototype.setItem = function (k, v) {
+    origSet.call(this, k, v);
+    if (this === window.localStorage && currentUser && typeof k === 'string' && k.indexOf(PREFIX) === 0) {
+      pending[k] = true;
+      scheduleFlush();
+    }
+  };
+
+  function scheduleFlush(delay) {
+    clearTimeout(flushTimer);
+    setStatus('保存中…');
+    flushTimer = setTimeout(flush, delay == null ? 700 : delay);
+  }
+
+  async function flush() {
+    if (!currentUser) return;
+    var keys = Object.keys(pending);
+    if (keys.length === 0) return;
+    pending = {};
+    var now = new Date().toISOString();
+    var rows = keys.map(function (k) {
+      var raw = localStorage.getItem(k);
+      var value;
+      try { value = JSON.parse(raw); } catch (e) { value = { __raw: raw }; }
+      if (value === null || value === undefined) value = {};
+      return { user_id: currentUser.id, key: k, value: value, updated_at: now };
+    });
+    var res = await sb.from('app_data').upsert(rows, { onConflict: 'user_id,key' });
+    if (res.error) {
+      keys.forEach(function (k) { pending[k] = true; });
+      setStatus('保存できませんでした。通信を確認してください', 'err');
+      clearTimeout(flushTimer);
+      flushTimer = setTimeout(flush, 5000);
+      return;
+    }
+    keys.forEach(function (k) { lastSeen[k] = now; });
+    setStatus('保存しました', 'ok');
+  }
+
+  // ---- 他の端末で更新されていたら、読み込み直す ----
+  async function checkRemote() {
+    var res = await sb.from('app_data').select('key,updated_at');
+    if (res.error || !res.data) return;
+    var changed = res.data.some(function (r) {
+      var seen = lastSeen[r.key];
+      return !seen || new Date(r.updated_at).getTime() > new Date(seen).getTime();
+    });
+    if (changed) location.reload();
+  }
+
+  document.addEventListener('visibilitychange', async function () {
+    if (!currentUser) return;
+    if (document.visibilityState === 'hidden') {
+      clearTimeout(flushTimer);
+      flush();
+    } else {
+      await flush();
+      checkRemote();
+    }
+  });
+  window.addEventListener('pagehide', function () {
+    if (!currentUser) return;
+    clearTimeout(flushTimer);
+    flush();
+  });
+
+  // ---- localStorageの整理 ----
+  function localKeys() {
+    var keys = [];
+    for (var i = 0; i < localStorage.length; i++) {
+      var k = localStorage.key(i);
+      if (k && k.indexOf(PREFIX) === 0) keys.push(k);
+    }
+    return keys;
+  }
+  function clearLocal() {
+    localKeys().forEach(function (k) { localStorage.removeItem(k); });
+  }
+  function backupAndClearLocal() {
+    var dump = {};
+    localKeys().forEach(function (k) { dump[k] = localStorage.getItem(k); });
+    origSet.call(localStorage, UNLINKED_BACKUP, JSON.stringify(dump));
+    clearLocal();
+  }
+
+  // ---- ログイン画面 ----
+  function showAuth(message) {
+    document.body.classList.remove('app-ready');
+    $('authScreen').style.display = 'flex';
+    authMsg(message || '');
+  }
+  function authMsg(text, kind) {
+    var el = $('authMsg');
+    el.textContent = text || '';
+    el.className = 'auth-msg' + (kind ? ' ' + kind : '');
+  }
+  function authBusy(b) {
+    ['authLoginBtn', 'authSignupBtn', 'authGuestBtn'].forEach(function (id) { $(id).disabled = b; });
+  }
+  function jaError(err) {
+    var m = (err && err.message) || '';
+    if (/Invalid login credentials/i.test(m)) return 'メールアドレスまたはパスワードが違います';
+    if (/Email not confirmed/i.test(m)) return 'メールの確認がまだ完了していません。届いたメールのリンクを開いてください';
+    if (/already registered/i.test(m)) return 'このメールアドレスはすでに登録されています。ログインしてください';
+    if (/at least 6/i.test(m)) return 'パスワードは6文字以上にしてください';
+    if (/rate limit/i.test(m)) return '短い時間にメールを送りすぎました。しばらくしてからやり直してください';
+    if (/valid email|invalid format/i.test(m)) return 'メールアドレスの形式を確認してください';
+    return m || 'うまくいきませんでした';
+  }
+
+  async function doSignIn() {
+    var email = $('authEmail').value.trim();
+    var password = $('authPassword').value;
+    if (!email || !password) { authMsg('メールアドレスとパスワードを入力してください'); return; }
+    authMsg('');
+    authBusy(true);
+    var res = await sb.auth.signInWithPassword({ email: email, password: password });
+    authBusy(false);
+    if (res.error) { authMsg(jaError(res.error)); return; }
+    await startWithUser(res.data.user);
+  }
+
+  async function doSignUp() {
+    var email = $('authEmail').value.trim();
+    var password = $('authPassword').value;
+    if (!email || !password) { authMsg('メールアドレスとパスワードを入力してください'); return; }
+    if (password.length < 6) { authMsg('パスワードは6文字以上にしてください'); return; }
+    authMsg('');
+    authBusy(true);
+    var res = await sb.auth.signUp({ email: email, password: password, options: { emailRedirectTo: location.origin } });
+    authBusy(false);
+    if (res.error) { authMsg(jaError(res.error)); return; }
+    if (res.data.session) {
+      await startWithUser(res.data.user);
+    } else {
+      authMsg('確認メールを送りました。メールのリンクを開いてから、ログインしてください。', 'ok');
+    }
+  }
+
+  // ---- ログイン後：サーバーのデータをこのブラウザに読み込んで、アプリを起動する ----
+  async function startWithUser(user) {
+    setStatus('読み込み中…');
+    var res = await sb.from('app_data').select('key,value,updated_at');
+    if (res.error) {
+      $('syncStatus').classList.remove('show');
+      showAuth('データを読み込めませんでした：' + res.error.message + '（SupabaseでSQLを実行済みか確認してください）');
+      return;
+    }
+    var rows = res.data || [];
+    var serverHas = rows.length > 0;
+    var metaUser = localStorage.getItem(META_USER);
+    var existing = localKeys();
+    var uploadLocal = false;
+
+    if (existing.length > 0) {
+      if (metaUser && metaUser !== user.id) {
+        clearLocal(); // 別のアカウントのデータが残っていたら、このブラウザからは消す
+      } else if (!metaUser && !serverHas) {
+        uploadLocal = confirm('このブラウザにあるデータを、アカウントに取り込みますか？\n\nOK：取り込む\nキャンセル：取り込まず、空の状態で始める');
+        if (!uploadLocal) backupAndClearLocal();
+      } else if (!metaUser && serverHas) {
+        backupAndClearLocal(); // アカウントのデータを優先（ブラウザ側は控えを残す）
+      }
+    }
+
+    // サーバーのデータを、アプリが読むlocalStorageに書き出す
+    rows.forEach(function (r) {
+      var v = r.value;
+      var text = (v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 1 && v.__raw !== undefined)
+        ? v.__raw : JSON.stringify(v);
+      origSet.call(localStorage, r.key, text);
+      lastSeen[r.key] = r.updated_at;
+    });
+    origSet.call(localStorage, META_USER, user.id);
+
+    currentUser = user;
+
+    // まだサーバーにないキー（取り込み分・送りそびれた分）を送る
+    var serverKeys = {};
+    rows.forEach(function (r) { serverKeys[r.key] = true; });
+    localKeys().forEach(function (k) { if (!serverKeys[k]) pending[k] = true; });
+    if (Object.keys(pending).length > 0) await flush();
+    else $('syncStatus').classList.remove('show');
+
+    $('authScreen').style.display = 'none';
+    $('userEmail').textContent = user.email || '';
+    $('userEmail').style.display = 'inline';
+    $('logoutBtn').style.display = 'inline-block';
+    launchApp();
+  }
+
+  function startGuest() {
+    $('authScreen').style.display = 'none';
+    $('goLoginBtn').style.display = 'inline-block';
+    launchApp();
+  }
+
+  // 本体のスクリプトを、ログインの準備ができてから実行する
+  function launchApp() {
+    if (appStarted) return;
+    appStarted = true;
+    document.body.classList.add('app-ready');
+    var s = document.createElement('script');
+    s.textContent = $('appCode').textContent;
+    document.body.appendChild(s);
+  }
+
+  $('authLoginBtn').addEventListener('click', doSignIn);
+  $('authSignupBtn').addEventListener('click', doSignUp);
+  $('authGuestBtn').addEventListener('click', startGuest);
+  $('authPassword').addEventListener('keydown', function (e) { if (e.key === 'Enter') doSignIn(); });
+  $('goLoginBtn').addEventListener('click', function () { location.reload(); });
+  $('logoutBtn').addEventListener('click', async function () {
+    clearTimeout(flushTimer);
+    await flush();
+    await sb.auth.signOut();
+    clearLocal();
+    localStorage.removeItem(META_USER);
+    location.reload();
+  });
+
+  (async function boot() {
+    var res = await sb.auth.getSession();
+    if (res.data && res.data.session) {
+      await startWithUser(res.data.session.user);
+    } else {
+      showAuth();
+    }
+  })();
+})();
 </script>
 </body>
 </html>
