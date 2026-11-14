@@ -450,6 +450,11 @@
   #overlay .btn.ghost { color: var(--text); }
   #overlay .btn.danger { color: #ff3b30; }
 
+  /* 長い授業名：枠を少し広げて、2行におさめる */
+  #grid th:not(:first-child), #grid td:not(.period-label) { width: 74px; }
+  #grid td .cell.filled { font-size: 11px; height: 54px; min-height: 54px; padding: 3px 2px; overflow: hidden; word-break: break-all; }
+  #grid td .cell:not(.filled) { min-height: 58px; }
+
   /* ===== 授業のコマの区切りをはっきりさせる ===== */
   :root { --grid-line: #c7c7cc; }
   @media (prefers-color-scheme: dark) {
@@ -625,6 +630,7 @@
       </div>
 
       <input id="classroomInput" type="text" placeholder="教室（例：3号館201）" autocomplete="off">
+      <input id="teacherInput" type="text" placeholder="教員名" autocomplete="off">
 
       <div class="swatches" id="swatches"></div>
       <div class="row">
@@ -1189,13 +1195,14 @@
   function normalize(entry) {
     if (!entry) return null;
     if (typeof entry === 'string') {
-      return { subject: entry, color: PALETTE[0].id, classroom: '', isOndemand: false };
+      return { subject: entry, color: PALETTE[0].id, classroom: '', teacher: '', isOndemand: false };
     }
     const color = (!entry.color || !PALETTE.some((c) => c.id === entry.color)) ? PALETTE[0].id : entry.color;
     return {
       subject: entry.subject,
       color,
       classroom: entry.classroom || '',
+      teacher: entry.teacher || '',
       isOndemand: !!entry.isOndemand,
     };
   }
@@ -1249,7 +1256,7 @@
           const status = attendance[attendanceKey(d, p)];
           const dot = status ? `<span class="attend-dot ${status}"></span>` : '';
           const scheduleDot = hasScheduleFor(d, p) ? '<span class="schedule-mark"></span>' : '';
-          return `<td><button class="cell filled${ondemandClass}" style="${style}" data-day="${d}" data-period="${p}">${dot}${scheduleDot}${wrapText(entry.subject)}</button></td>`;
+          return `<td><button class="cell filled${ondemandClass}" style="${style}" title="${escapeHtml(entry.subject)}" data-day="${d}" data-period="${p}">${dot}${scheduleDot}${wrapText(entry.subject)}</button></td>`;
         }
         return `<td><button class="cell" data-day="${d}" data-period="${p}"></button></td>`;
       }).join('');
@@ -1459,7 +1466,7 @@
 
       return `<div class="timeline-event${cancelled ? ' cancelled' : ''}" style="${pos} ${look}" data-period="${p}">
         <span class="ev-title">${escapeHtml(entry.subject)}${dot}${scheduleDot}</span>
-        <span class="ev-sub">${escapeHtml(locationLine)}</span>
+        <span class="ev-sub">${escapeHtml(locationLine)}${(!cancelled && entry.teacher) ? ' ・ ' + escapeHtml(entry.teacher) : ''}</span>
       </div>`;
     }).join('');
 
@@ -1510,11 +1517,17 @@
   }
 
   // 5文字ごとに改行を入れる（セル内で読みやすくするため）
+  // 週表示のマス用：1行6文字・2行（12文字）におさめる。
+  // おさまらないときは「最初の6文字…最後の4文字」にする
   function wrapText(str) {
-    const chars = Array.from(str);
+    const perLine = 6, maxLines = 2, head = 6, tail = 4;
+    let chars = Array.from(str);
+    if (chars.length > perLine * maxLines) {
+      chars = Array.from(chars.slice(0, head).join('') + '…' + chars.slice(-tail).join(''));
+    }
     const lines = [];
-    for (let i = 0; i < chars.length; i += 5) {
-      lines.push(escapeHtml(chars.slice(i, i + 5).join('')));
+    for (let i = 0; i < chars.length; i += perLine) {
+      lines.push(escapeHtml(chars.slice(i, i + perLine).join('')));
     }
     return lines.join('<br>');
   }
@@ -1561,9 +1574,10 @@
     odBtn.style.display = (entry.isOndemand || cancelled) ? 'none' : 'block';
     odBtn.textContent = weekOnly ? 'オンデマンドを解除する（通常に戻す）' : 'この週だけオンデマンドにする';
 
+    const teacherLine = entry.teacher ? `<br>教員：${escapeHtml(entry.teacher)}` : '';
     document.getElementById('viewInfo').innerHTML = cancelled
-      ? `<strong>${escapeHtml(entry.subject)}</strong><br><span class="badge" style="background:var(--border); color:var(--muted);">この日は休講</span>`
-      : `<strong>${escapeHtml(entry.subject)}</strong><br>${locationLine}`;
+      ? `<strong>${escapeHtml(entry.subject)}</strong>${teacherLine}<br><span class="badge" style="background:var(--border); color:var(--muted);">この日は休講</span>`
+      : `<strong>${escapeHtml(entry.subject)}</strong>${teacherLine}<br>${locationLine}`;
 
     // 休講中は出欠の記録対象にしないので出欠ボタンを隠す
     const attendRow = document.getElementById('attendPresent').parentElement;
@@ -1602,6 +1616,7 @@
     document.getElementById('modalLabel').textContent = `${DAY_LABELS[day]}曜 ${period}限 の授業`;
     document.getElementById('subjectInput').value = existing ? existing.subject : '';
     document.getElementById('classroomInput').value = existing ? existing.classroom : '';
+    document.getElementById('teacherInput').value = existing ? existing.teacher : '';
     document.getElementById('ondemandCheck').checked = existing ? existing.isOndemand : false;
     toggleClassroomField();
     document.getElementById('deleteBtn').style.display = existing ? 'block' : 'none';
@@ -1664,12 +1679,14 @@
     if (!value) return;
     const isOndemand = document.getElementById('ondemandCheck').checked;
     const classroom = document.getElementById('classroomInput').value.trim();
+    const teacher = document.getElementById('teacherInput').value.trim();
     const k = scheduleKey(current.day, current.period);
     if (!k) return; // 学期期間外では登録できない
     schedules[k] = {
       subject: value,
       color: selectedColor,
       classroom: isOndemand ? '' : classroom,
+      teacher,
       isOndemand,
     };
     save();
