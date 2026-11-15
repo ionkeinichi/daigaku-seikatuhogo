@@ -475,6 +475,13 @@
   /* 登録のないコマも、枠として見えるようにする */
   #grid td .cell:not(.filled) { min-height: 58px; }
 
+  /* コマの下に教室を表示（そこだけ白背景・黒文字） */
+  #grid td .cell.filled { height: 62px; min-height: 62px; padding: 0; flex-direction: column; justify-content: space-between; align-items: stretch; }
+  #grid td .cell.filled.cancelled { justify-content: center; align-items: center; padding: 3px 2px; }
+  #grid td .cell:not(.filled) { min-height: 66px; }
+  .cell-name { flex: 1; display: flex; align-items: center; justify-content: center; padding: 3px 2px 0; text-align: center; }
+  .cell-room { display: block; width: 100%; background: #ffffff; color: #000000; font-size: 9px; font-weight: 500; line-height: 1.5; padding: 0 2px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 0 0 5px 5px; }
+
   /* ===== ログイン画面・保存状況 ===== */
   body:not(.app-ready) .wrap { display: none; }
   .auth-screen { position: fixed; inset: 0; background: var(--bg); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 24px; overflow: auto; }
@@ -1251,12 +1258,14 @@
           const odNow = isOndemandNow(entry, d, p);
           const style = odNow
             ? `background:${c.bg}; color:${c.text};`
-            : `background:${c.swatch}; color:#ffffff;`;
+            : `background:${c.swatch}; color:#ffffff; border:1px solid ${c.swatch};`;
           const ondemandClass = odNow ? ' ondemand' : '';
+          // コマの下に出す教室：登録があれば教室名、なければ「未登録」、オンデマンドなら「オンデマンド」
+          const roomText = odNow ? 'オンデマンド' : (entry.classroom ? escapeHtml(entry.classroom) : '未登録');
           const status = attendance[attendanceKey(d, p)];
           const dot = status ? `<span class="attend-dot ${status}"></span>` : '';
           const scheduleDot = hasScheduleFor(d, p) ? '<span class="schedule-mark"></span>' : '';
-          return `<td><button class="cell filled${ondemandClass}" style="${style}" title="${escapeHtml(entry.subject)}" data-day="${d}" data-period="${p}">${dot}${scheduleDot}${wrapText(entry.subject)}</button></td>`;
+          return `<td><button class="cell filled${ondemandClass}" style="${style}" title="${escapeHtml(entry.subject)}" data-day="${d}" data-period="${p}">${dot}${scheduleDot}<span class="cell-name">${wrapText(entry.subject)}</span><span class="cell-room">${roomText}</span></button></td>`;
         }
         return `<td><button class="cell" data-day="${d}" data-period="${p}"></button></td>`;
       }).join('');
