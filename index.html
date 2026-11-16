@@ -482,6 +482,14 @@
   .cell-name { flex: 1; display: flex; align-items: center; justify-content: center; padding: 3px 2px 0; text-align: center; }
   .cell-room { display: block; width: 100%; background: #ffffff; color: #000000; font-size: 9px; font-weight: 500; line-height: 1.5; padding: 0 2px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 0 0 5px 5px; }
 
+  /* スケジュールの編集ボタン・くり返しの印・終日の表示 */
+  .schedule-edit { position: absolute; top: 2px; right: 22px; background: none; border: none; color: var(--muted); font-size: 13px; line-height: 1; cursor: pointer; padding: 2px 4px; }
+  .schedule-edit:hover { color: var(--accent); }
+  .schedule-item { padding-right: 46px; }
+  .schedule-repeat { font-size: 10px; color: var(--muted); margin-left: 4px; }
+  .schedule-more { font-size: 11px; color: var(--muted); margin: 2px 0 0; }
+  .allday-label { font-size: 10px; color: var(--muted); align-self: center; margin-right: 2px; }
+
   /* ===== ログイン画面・保存状況 ===== */
   body:not(.app-ready) .wrap { display: none; }
   .auth-screen { position: fixed; inset: 0; background: var(--bg); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 24px; overflow: auto; }
@@ -688,6 +696,23 @@
       <select id="assignMonthInput" style="width:auto; flex:none; margin:0; padding:8px;"></select>
       <select id="assignDayInput" style="width:auto; flex:none; margin:0; padding:8px;"></select>
     </div>
+    <label class="field-label">くり返し</label>
+    <div class="field-row">
+      <select id="assignRepeat" style="width:auto; flex:none; margin:0; padding:8px;">
+        <option value="none">なし</option>
+        <option value="weekly">毎週</option>
+        <option value="biweekly">隔週</option>
+      </select>
+    </div>
+    <div id="assignRepeatEndRow" style="display:none;">
+      <label class="field-label">くり返しの終了日</label>
+      <div class="field-row" style="flex-wrap:wrap; margin-bottom:4px;">
+        <select id="assignRepeatYear" style="width:auto; flex:none; margin:0; padding:8px;"></select>
+        <select id="assignRepeatMonth" style="width:auto; flex:none; margin:0; padding:8px;"></select>
+        <select id="assignRepeatDay" style="width:auto; flex:none; margin:0; padding:8px;"></select>
+      </div>
+      <p class="note" style="margin:0 0 10px;">終了日を選ばないときは、15回分を登録します</p>
+    </div>
     <div class="row">
       <button class="btn ghost" id="assignCancelBtn">閉じる</button>
       <button class="btn primary" id="assignAddBtn">追加</button>
@@ -698,27 +723,52 @@
 <!-- スケジュール全件一覧 -->
 <div class="overlay" id="scheduleAllOverlay" style="display:none;">
   <div class="modal">
+    <p class="memo-subject" id="scheduleFormTitle">スケジュールを追加</p>
     <div class="settings-section">
+      <input type="text" id="scheduleTextInput" placeholder="スケジュールを入力" autocomplete="off" style="margin-bottom:10px;">
+      <div class="field-row">
+        <input type="checkbox" id="scheduleAllDay">
+        <label for="scheduleAllDay">終日</label>
+      </div>
       <div class="field-row" style="flex-wrap:wrap;">
         <span class="when-label">開始</span>
+        <select id="scheduleYearInput" style="width:auto; flex:none; margin:0; padding:8px;"></select>
         <select id="scheduleMonthInput" style="width:auto; flex:none; margin:0; padding:8px;"></select>
         <select id="scheduleDayInput" style="width:auto; flex:none; margin:0; padding:8px;"></select>
         <input type="time" id="scheduleTimeInput" class="time-input">
       </div>
       <div class="field-row" style="flex-wrap:wrap;">
         <span class="when-label">終了</span>
+        <select id="scheduleEndYearInput" style="width:auto; flex:none; margin:0; padding:8px;"></select>
         <select id="scheduleEndMonthInput" style="width:auto; flex:none; margin:0; padding:8px;"></select>
         <select id="scheduleEndDayInput" style="width:auto; flex:none; margin:0; padding:8px;"></select>
         <input type="time" id="scheduleEndTimeInput" class="time-input">
       </div>
       <p class="note" id="scheduleError" style="display:none; color:#ef4444; margin:-4px 0 10px;">終了は開始より後にしてください</p>
-      <div class="field-row" style="margin-bottom:0;">
-        <input type="text" id="scheduleTextInput" placeholder="スケジュールを入力" autocomplete="off" style="flex:1; width:auto; margin:0;">
-        <button class="btn primary" id="addScheduleBtn" style="width:auto; flex:none; padding:10px 14px;">追加</button>
+      <div id="scheduleRepeatBox">
+        <div class="field-row">
+          <span class="when-label" style="width:auto; margin-right:4px;">くり返し</span>
+          <select id="scheduleRepeat" style="width:auto; flex:none; margin:0; padding:8px;">
+            <option value="none">なし</option>
+            <option value="weekly">毎週</option>
+            <option value="biweekly">隔週</option>
+          </select>
+        </div>
+        <div id="scheduleRepeatEndRow" style="display:none;">
+          <div class="field-row" style="flex-wrap:wrap; margin-bottom:4px;">
+            <span class="when-label" style="width:auto; margin-right:4px;">終了日</span>
+            <select id="scheduleRepeatYear" style="width:auto; flex:none; margin:0; padding:8px;"></select>
+            <select id="scheduleRepeatMonth" style="width:auto; flex:none; margin:0; padding:8px;"></select>
+            <select id="scheduleRepeatDay" style="width:auto; flex:none; margin:0; padding:8px;"></select>
+          </div>
+          <p class="note" style="margin:0 0 10px;">終了日を選ばないときは、15回分を登録します</p>
+        </div>
       </div>
+      <p class="note" id="scheduleSeriesNote" style="display:none; margin:0 0 10px;">くり返しの予定の、この1回分だけを編集します</p>
     </div>
     <div class="row" style="margin-top:12px;">
-      <button class="btn primary" id="scheduleAllOverlayClose" style="flex:1;">閉じる</button>
+      <button class="btn ghost" id="scheduleAllOverlayClose">閉じる</button>
+      <button class="btn primary" id="addScheduleBtn">追加</button>
     </div>
   </div>
 </div>
@@ -972,14 +1022,22 @@
 
   // 「月/日 時:分〜月/日 時:分」の形に整える（同じ日なら終了は時刻のみ）
   function scheduleRangeText(item) {
+    const thisYear = new Date().getFullYear();
+    const fmt = (d) => `${d.getFullYear() !== thisYear ? d.getFullYear() + '/' : ''}${d.getMonth() + 1}/${d.getDate()}`;
     const sd = parseDateInput(item.date);
-    let text = `${sd.getMonth() + 1}/${sd.getDate()}` + (item.time ? ' ' + item.time : '');
+    if (!item.time) {
+      // 終日（時刻なし）
+      let t = fmt(sd);
+      if (item.endDate && item.endDate !== item.date) t += `〜${fmt(parseDateInput(item.endDate))}`;
+      return t + ' 終日';
+    }
+    let text = fmt(sd) + ' ' + item.time;
     if (item.endDate) {
       const ed = parseDateInput(item.endDate);
       if (item.endDate === item.date) {
         if (item.endTime) text += '〜' + item.endTime;
       } else {
-        text += `〜${ed.getMonth() + 1}/${ed.getDate()}` + (item.endTime ? ' ' + item.endTime : '');
+        text += `〜${fmt(ed)}` + (item.endTime ? ' ' + item.endTime : '');
       }
     }
     return text;
@@ -991,9 +1049,11 @@
     const md = `${dateObj.getMonth() + 1}/${dateObj.getDate()}`;
     const daysLabel = n < 0 ? '開催中' : (n === 0 ? '今日' : `あと${n}日`);
     const subjectLine = item.subject ? `<span class="schedule-subject">${escapeHtml(item.subject)}</span>` : '';
+    const repeatTag = item.repeat === 'weekly' ? '毎週' : (item.repeat === 'biweekly' ? '隔週' : '');
     return `<div class="schedule-item">
+      <button class="schedule-edit" data-id="${item.id}" aria-label="編集">✎</button>
       <button class="schedule-delete" data-id="${item.id}" aria-label="削除">×</button>
-      <span class="schedule-date">${scheduleRangeText(item)}（${daysLabel}）</span>
+      <span class="schedule-date">${scheduleRangeText(item)}（${daysLabel}）${repeatTag ? `<span class="schedule-repeat">${repeatTag}</span>` : ''}</span>
       ${escapeHtml(item.text)} ${subjectLine}
     </div>`;
   }
@@ -1005,34 +1065,32 @@
         removeScheduleItem(btn.dataset.id);
       });
     });
+    box.querySelectorAll('.schedule-edit').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openScheduleEdit(btn.dataset.id);
+      });
+    });
   }
 
-  // サイドバー表示：期限まで3日未満のものは必ず全て表示し、それに加えて
-  // 合計が10件になるまで近い順に表示する（登録数が10件以下ならすべて表示）
+  // サイドバー表示：近い順に5件まで
   function renderScheduleList() {
     const box = document.getElementById('scheduleList');
     if (!box) return;
 
     const upcoming = upcomingScheduleItems();
 
-    let visible;
-    if (upcoming.length <= 10) {
-      visible = upcoming;
-    } else {
-      const urgent = upcoming.filter(item => daysUntil(item.date) < 3);
-      if (urgent.length >= 10) {
-        visible = urgent;
-      } else {
-        const rest = upcoming.filter(item => daysUntil(item.date) >= 3);
-        visible = urgent.concat(rest.slice(0, 10 - urgent.length));
-      }
-    }
+    // 週表示の右の欄は、近い順に5件まで
+    const MAX_SIDEBAR = 5;
+    const visible = upcoming.slice(0, MAX_SIDEBAR);
 
     if (visible.length === 0) {
       box.innerHTML = '<p class="schedule-empty">表示できるスケジュールはありません</p>';
       return;
     }
-    box.innerHTML = visible.map(scheduleItemHtml).join('');
+    const more = upcoming.length - visible.length;
+    box.innerHTML = visible.map(scheduleItemHtml).join('') +
+      (more > 0 ? `<p class="schedule-more">ほか${more}件</p>` : '');
     bindScheduleDeleteButtons(box);
   }
 
@@ -1480,7 +1538,7 @@
     }).join('');
 
     const allDayHtml = allDay.length
-      ? `<div class="allday-row">${allDay.map(it => `<span class="allday-chip">${escapeHtml(it.text)}</span>`).join('')}</div>`
+      ? `<div class="allday-row"><span class="allday-label">終日</span>${allDay.map(it => `<span class="allday-chip">${escapeHtml(it.text)}</span>`).join('')}</div>`
       : '';
 
     // 上部の1週間バー：曜日と日付の丸（選択中は塗りつぶし、今日は赤）
@@ -1731,7 +1789,12 @@
   }
 
   function removeScheduleItem(id) {
-    scheduleItems = scheduleItems.filter(item => item.id !== id);
+    const target = scheduleItems.find(item => item.id === id);
+    let removeAll = false;
+    if (target && target.seriesId && scheduleItems.filter(i => i.seriesId === target.seriesId).length > 1) {
+      removeAll = confirm('これは、くり返しの予定です。\n\nOK：くり返しの予定をすべて削除\nキャンセル：この1件だけ削除');
+    }
+    scheduleItems = scheduleItems.filter(item => removeAll ? item.seriesId !== target.seriesId : item.id !== id);
     saveScheduleItems();
     renderScheduleList();
     renderAllScheduleList();
@@ -1794,28 +1857,7 @@
   }
   let selectedYear = yearSelect.value;
 
-  // スケジュール登録用：月（1〜12）・日（1〜31）をクリックして選べるようにする
-  const scheduleMonthSelect = document.getElementById('scheduleMonthInput');
-  const scheduleDaySelect = document.getElementById('scheduleDayInput');
-  for (let m = 1; m <= 12; m++) {
-    const opt = document.createElement('option');
-    opt.value = String(m);
-    opt.textContent = `${m}月`;
-    scheduleMonthSelect.appendChild(opt);
-  }
-  for (let d = 1; d <= 31; d++) {
-    const opt = document.createElement('option');
-    opt.value = String(d);
-    opt.textContent = `${d}日`;
-    scheduleDaySelect.appendChild(opt);
-  }
-
-  // スケジュールの終了（月・日）の選択肢
-  const scheduleEndMonthSelect = document.getElementById('scheduleEndMonthInput');
-  const scheduleEndDaySelect = document.getElementById('scheduleEndDayInput');
-  for (let m = 1; m <= 12; m++) { const o = document.createElement('option'); o.value = String(m); o.textContent = `${m}月`; scheduleEndMonthSelect.appendChild(o); }
-  for (let d = 1; d <= 31; d++) { const o = document.createElement('option'); o.value = String(d); o.textContent = `${d}日`; scheduleEndDaySelect.appendChild(o); }
-
+  // スケジュール・くり返しの日付選択（年・月・日）の選択肢は、後ろの「スケジュール」の項でまとめて作る
   function findConfigIndexByYear(yearStr) {
     return yearConfigs.findIndex(c => String(c.year) === String(yearStr));
   }
@@ -2066,11 +2108,7 @@
     const now = new Date();
     now.setMinutes(0, 0, 0);
     now.setHours(now.getHours() + 1); // 開始は次の区切りの時刻、終了はその1時間後を初期値にする
-    setScheduleFields('', now);
-    setScheduleFields('End', new Date(now.getTime() + 60 * 60 * 1000));
-    document.getElementById('scheduleError').style.display = 'none';
-    renderAllScheduleList();
-    document.getElementById('scheduleAllOverlay').style.display = 'flex';
+    openScheduleForm(now, null);
   });
   document.getElementById('scheduleAllOverlayClose').addEventListener('click', () => {
     document.getElementById('scheduleAllOverlay').style.display = 'none';
@@ -2124,8 +2162,17 @@
   function deleteAssignment(id) {
     const a = assignments.find(x => x.id === id);
     if (!a) return;
-    logAssign('delete', a);
-    assignments = assignments.filter(x => x.id !== id);
+    let removeAll = false;
+    if (a.seriesId && assignments.filter(x => x.seriesId === a.seriesId).length > 1) {
+      removeAll = confirm('これは、くり返しの課題です。\n\nOK：くり返しの課題をすべて削除\nキャンセル：この1件だけ削除');
+    }
+    if (removeAll) {
+      assignments.filter(x => x.seriesId === a.seriesId).forEach(x => logAssign('delete', x));
+      assignments = assignments.filter(x => x.seriesId !== a.seriesId);
+    } else {
+      logAssign('delete', a);
+      assignments = assignments.filter(x => x.id !== id);
+    }
     saveAssignments();
   }
 
@@ -2238,6 +2285,9 @@
     sel.innerHTML = '<option value="">指定なし</option>' +
       currentSubjects().map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
     document.getElementById('assignTitleInput').value = '';
+    document.getElementById('assignRepeat').value = 'none';
+    document.getElementById('assignRepeatEndRow').style.display = 'none';
+    ['assignRepeatYear', 'assignRepeatMonth', 'assignRepeatDay'].forEach(id => { document.getElementById(id).value = ''; });
     const now = new Date();
     assignMonthSelect.value = String(now.getMonth() + 1);
     assignDaySelect.value = String(now.getDate());
@@ -2254,14 +2304,24 @@
     const month = Number(assignMonthSelect.value);
     const day = Number(assignDaySelect.value);
     const year = resolveAssignmentYear(month, day);
-    assignments.push({
-      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
-      title,
-      subject: document.getElementById('assignSubjectSelect').value,
-      date: formatDateKey(new Date(year, month - 1, day)),
-      submitted: false,
-    });
-    logAssign('add', assignments[assignments.length - 1]);
+    const firstDate = formatDateKey(new Date(year, month - 1, day));
+    const subject = document.getElementById('assignSubjectSelect').value;
+    const repeat = document.getElementById('assignRepeat').value;
+
+    if (repeat === 'none') {
+      assignments.push({ id: newId(), title, subject, date: firstDate, submitted: false });
+      logAssign('add', assignments[assignments.length - 1]);
+    } else {
+      // 毎週・隔週：期限の日付ごとに、1件ずつ課題を作る（提出状況は1件ずつ別々）
+      const until = readRepeatUntil('assignRepeatYear', 'assignRepeatMonth', 'assignRepeatDay');
+      const seriesId = newId();
+      const shifts = repeatDates(firstDate, repeat, until);
+      shifts.forEach(shift => {
+        assignments.push({ id: newId(), title, subject, date: shiftDateStr(firstDate, shift), submitted: false, seriesId, repeat });
+      });
+      const label = repeat === 'weekly' ? '毎週' : '隔週';
+      logAssign('add', { title: `${title}（${label}・${shifts.length}件）`, subject, date: firstDate });
+    }
     saveAssignments();
     renderAssignList();
     refreshView();
@@ -2456,38 +2516,151 @@
 
   // スケジュール：授業の時限とは関係なく、開始と終了の日付・時刻で登録する
   const pad2 = (n) => String(n).padStart(2, '0');
+  const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  let editingScheduleId = null;
 
-  // prefix は '' （開始）または 'End' （終了）
+  // 年・月・日の選択肢を作る（blank=true なら先頭に「指定なし」を付ける）
+  function fillDateSelects(yearId, monthId, dayId, blank) {
+    const y = document.getElementById(yearId), m = document.getElementById(monthId), d = document.getElementById(dayId);
+    const thisYear = new Date().getFullYear();
+    const mk = (sel, value, text) => { const o = document.createElement('option'); o.value = value; o.textContent = text; sel.appendChild(o); };
+    if (blank) { mk(y, '', '年'); mk(m, '', '月'); mk(d, '', '日'); }
+    for (let yr = thisYear - 10; yr <= thisYear + 10; yr++) mk(y, String(yr), `${yr}年`);
+    for (let mo = 1; mo <= 12; mo++) mk(m, String(mo), `${mo}月`);
+    for (let dd = 1; dd <= 31; dd++) mk(d, String(dd), `${dd}日`);
+  }
+  fillDateSelects('scheduleYearInput', 'scheduleMonthInput', 'scheduleDayInput', false);
+  fillDateSelects('scheduleEndYearInput', 'scheduleEndMonthInput', 'scheduleEndDayInput', false);
+  fillDateSelects('scheduleRepeatYear', 'scheduleRepeatMonth', 'scheduleRepeatDay', true);
+  fillDateSelects('assignRepeatYear', 'assignRepeatMonth', 'assignRepeatDay', true);
+
+  // prefix は '' （開始）または 'End' （終了）。年は今年が初期値で、選んだ年をそのまま使う
   function setScheduleFields(prefix, d) {
+    document.getElementById(`schedule${prefix}YearInput`).value = String(d.getFullYear());
     document.getElementById(`schedule${prefix}MonthInput`).value = String(d.getMonth() + 1);
     document.getElementById(`schedule${prefix}DayInput`).value = String(d.getDate());
     document.getElementById(`schedule${prefix}TimeInput`).value = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
   }
 
+  function isAllDay() { return document.getElementById('scheduleAllDay').checked; }
+
   function readScheduleDT(prefix) {
+    const year = Number(document.getElementById(`schedule${prefix}YearInput`).value);
     const month = Number(document.getElementById(`schedule${prefix}MonthInput`).value);
     const day = Number(document.getElementById(`schedule${prefix}DayInput`).value);
-    const time = document.getElementById(`schedule${prefix}TimeInput`).value || '00:00';
-    if (!month || !day) return null;
-    const year = resolveScheduleYear(month, day);
-    const [hh, mm] = time.split(':').map(Number);
+    const time = isAllDay() ? '' : (document.getElementById(`schedule${prefix}TimeInput`).value || '00:00');
+    if (!year || !month || !day) return null;
+    const [hh, mm] = (time || '00:00').split(':').map(Number);
     return { dateStr: formatDateKey(new Date(year, month - 1, day)), time, dt: new Date(year, month - 1, day, hh, mm) };
   }
 
-  // 開始を変えたとき、終了が開始より前になっていたら、開始の1時間後に合わせる
+  // 終日のときは、時刻の入力欄を隠す
+  function applyAllDayUI() {
+    const off = isAllDay();
+    document.getElementById('scheduleTimeInput').style.display = off ? 'none' : '';
+    document.getElementById('scheduleEndTimeInput').style.display = off ? 'none' : '';
+  }
+  document.getElementById('scheduleAllDay').addEventListener('change', () => {
+    applyAllDayUI();
+    syncScheduleEnd();
+  });
+
+  // 開始を変えたとき、終了が開始より前になっていたら合わせる（時刻あり：1時間後／終日：同じ日）
   function syncScheduleEnd() {
     const st = readScheduleDT('');
     const en = readScheduleDT('End');
     document.getElementById('scheduleError').style.display = 'none';
     if (!st) return;
-    if (!en || en.dt < st.dt) setScheduleFields('End', new Date(st.dt.getTime() + 60 * 60 * 1000));
+    if (!en || en.dt < st.dt) {
+      setScheduleFields('End', isAllDay() ? st.dt : new Date(st.dt.getTime() + 60 * 60 * 1000));
+    }
   }
-  ['scheduleMonthInput', 'scheduleDayInput', 'scheduleTimeInput'].forEach(id =>
+  ['scheduleYearInput', 'scheduleMonthInput', 'scheduleDayInput', 'scheduleTimeInput'].forEach(id =>
     document.getElementById(id).addEventListener('change', syncScheduleEnd));
-  ['scheduleEndMonthInput', 'scheduleEndDayInput', 'scheduleEndTimeInput'].forEach(id =>
+  ['scheduleEndYearInput', 'scheduleEndMonthInput', 'scheduleEndDayInput', 'scheduleEndTimeInput'].forEach(id =>
     document.getElementById(id).addEventListener('change', () => {
       document.getElementById('scheduleError').style.display = 'none';
     }));
+
+  document.getElementById('scheduleRepeat').addEventListener('change', (e) => {
+    document.getElementById('scheduleRepeatEndRow').style.display = e.target.value === 'none' ? 'none' : 'block';
+  });
+  document.getElementById('assignRepeat').addEventListener('change', (e) => {
+    document.getElementById('assignRepeatEndRow').style.display = e.target.value === 'none' ? 'none' : 'block';
+  });
+
+  // 画面を開く：新規 / 編集
+  function openScheduleForm(startDate, item) {
+    editingScheduleId = item ? item.id : null;
+    document.getElementById('scheduleFormTitle').textContent = item ? 'スケジュールを編集' : 'スケジュールを追加';
+    document.getElementById('addScheduleBtn').textContent = item ? '保存' : '追加';
+    document.getElementById('scheduleError').style.display = 'none';
+    document.getElementById('scheduleRepeatBox').style.display = item ? 'none' : 'block';
+    document.getElementById('scheduleSeriesNote').style.display = (item && item.seriesId) ? 'block' : 'none';
+    document.getElementById('scheduleRepeat').value = 'none';
+    document.getElementById('scheduleRepeatEndRow').style.display = 'none';
+    ['scheduleRepeatYear', 'scheduleRepeatMonth', 'scheduleRepeatDay'].forEach(id => { document.getElementById(id).value = ''; });
+
+    if (item) {
+      document.getElementById('scheduleTextInput').value = item.text;
+      const allDay = !item.time;
+      document.getElementById('scheduleAllDay').checked = allDay;
+      const sd = parseDateInput(item.date);
+      const [sh, sm] = (item.time || '00:00').split(':').map(Number);
+      setScheduleFields('', new Date(sd.getFullYear(), sd.getMonth(), sd.getDate(), sh, sm));
+      if (item.endDate) {
+        const ed = parseDateInput(item.endDate);
+        const [eh, em] = (item.endTime || '00:00').split(':').map(Number);
+        setScheduleFields('End', new Date(ed.getFullYear(), ed.getMonth(), ed.getDate(), eh, em));
+      } else {
+        setScheduleFields('End', allDay ? new Date(sd) : new Date(sd.getFullYear(), sd.getMonth(), sd.getDate(), sh + 1, sm));
+      }
+    } else {
+      document.getElementById('scheduleTextInput').value = '';
+      document.getElementById('scheduleAllDay').checked = false;
+      setScheduleFields('', startDate);
+      setScheduleFields('End', new Date(startDate.getTime() + 60 * 60 * 1000));
+    }
+    applyAllDayUI();
+    document.getElementById('scheduleAllOverlay').style.display = 'flex';
+  }
+
+  function openScheduleEdit(id) {
+    const item = scheduleItems.find(i => i.id === id);
+    if (item) openScheduleForm(null, item);
+  }
+
+  // 「毎週」「隔週」で、開始日からn回目の日付（開始・終了を同じ日数だけずらす）
+  function shiftDateStr(dateStr, days) {
+    const d = parseDateInput(dateStr);
+    d.setDate(d.getDate() + days);
+    return formatDateKey(d);
+  }
+
+  // くり返しの日付の一覧を作る。終了日があればそこまで、なければ15回分
+  function repeatDates(firstDateStr, repeat, untilStr) {
+    const step = repeat === 'weekly' ? 7 : 14;
+    const list = [];
+    for (let k = 0; k < 120; k++) {
+      const ds = shiftDateStr(firstDateStr, k * step);
+      if (untilStr) {
+        if (ds > untilStr) break;
+      } else if (k >= 15) {
+        break;
+      }
+      list.push(k * step);
+    }
+    if (list.length === 0) list.push(0); // 終了日が開始より前でも、最初の1回は登録する
+    return list; // 開始日からのずらす日数の一覧
+  }
+
+  function readRepeatUntil(yId, mId, dId) {
+    const y = Number(document.getElementById(yId).value);
+    const m = Number(document.getElementById(mId).value);
+    const d = Number(document.getElementById(dId).value);
+    if (!y || !m || !d) return '';
+    return formatDateKey(new Date(y, m - 1, d));
+  }
 
   document.getElementById('addScheduleBtn').addEventListener('click', () => {
     const text = document.getElementById('scheduleTextInput').value.trim();
@@ -2500,18 +2673,38 @@
     }
     document.getElementById('scheduleError').style.display = 'none';
 
-    scheduleItems.push({
-      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+    const base = {
       date: st.dateStr,
       time: st.time,
       endDate: en ? en.dateStr : '',
       endTime: en ? en.time : '',
       text,
-    });
+    };
+
+    if (editingScheduleId) {
+      const item = scheduleItems.find(i => i.id === editingScheduleId);
+      if (item) Object.assign(item, base);
+    } else {
+      const repeat = document.getElementById('scheduleRepeat').value;
+      if (repeat === 'none') {
+        scheduleItems.push({ id: newId(), ...base });
+      } else {
+        const until = readRepeatUntil('scheduleRepeatYear', 'scheduleRepeatMonth', 'scheduleRepeatDay');
+        const seriesId = newId();
+        repeatDates(base.date, repeat, until).forEach(shift => {
+          scheduleItems.push({
+            id: newId(), ...base, seriesId, repeat,
+            date: shiftDateStr(base.date, shift),
+            endDate: base.endDate ? shiftDateStr(base.endDate, shift) : '',
+          });
+        });
+      }
+    }
     saveScheduleItems();
+    editingScheduleId = null;
     document.getElementById('scheduleTextInput').value = '';
+    document.getElementById('scheduleAllOverlay').style.display = 'none';
     renderScheduleList();
-    renderAllScheduleList();
     refreshView();
   });
 
@@ -2541,11 +2734,7 @@
     } else {
       start = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 9, 0);
     }
-    setScheduleFields('', start);
-    setScheduleFields('End', new Date(start.getTime() + 60 * 60 * 1000));
-    document.getElementById('scheduleError').style.display = 'none';
-    document.getElementById('scheduleTextInput').value = '';
-    document.getElementById('scheduleAllOverlay').style.display = 'flex';
+    openScheduleForm(start, null);
   });
 
   // 「今日」ボタン：今日を含む週（日別表示なら今日）に戻る
