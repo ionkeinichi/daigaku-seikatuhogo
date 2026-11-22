@@ -490,6 +490,26 @@
   .schedule-more { font-size: 11px; color: var(--muted); margin: 2px 0 0; }
   .allday-label { font-size: 10px; color: var(--muted); align-self: center; margin-right: 2px; }
 
+  /* ===== 月別カレンダー（iPhoneのカレンダー風） ===== */
+  .view-toggle-row { width: 210px; }
+  .month-view { flex: 1; min-width: 300px; }
+  .month-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+  .month-dow { text-align: center; font-size: 11px; color: var(--muted); padding: 4px 0 6px; border-bottom: 1px solid var(--hairline); }
+  .month-cell { border-bottom: 1px solid var(--hairline); min-height: 96px; padding: 4px 1px 2px; cursor: pointer; min-width: 0; }
+  .month-cell.blank { cursor: default; }
+  .month-num { display: flex; justify-content: center; margin-bottom: 4px; }
+  .month-num span { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 17px; font-weight: 500; }
+  .month-cell.weekend .month-num span { color: var(--muted); }
+  .month-cell.today .month-num span { background: var(--accent); color: #fff; font-weight: 600; }
+  .month-pill { font-size: 10px; line-height: 15px; height: 15px; margin: 0 1px 2px; padding: 0 4px; border-radius: 4px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; background: var(--sched-soft); color: var(--text); font-weight: 600; }
+  .month-pill.assign { background: rgba(255, 149, 0, 0.22); }
+  .month-pill.assign.overdue { background: rgba(255, 59, 48, 0.22); }
+  .month-pill.assign.done { opacity: 0.45; text-decoration: line-through; }
+  .month-pill.more { background: none; color: var(--muted); font-weight: 500; padding-left: 2px; }
+
+  /* 集中授業の印 */
+  .cell.intensive::before { content: '集中'; position: absolute; top: 2px; left: 3px; z-index: 1; font-size: 8px; line-height: 1.3; background: rgba(0, 0, 0, 0.45); color: #fff; padding: 0 3px; border-radius: 3px; }
+
   /* ===== ログイン画面・保存状況 ===== */
   body:not(.app-ready) .wrap { display: none; }
   .auth-screen { position: fixed; inset: 0; background: var(--bg); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 24px; overflow: auto; }
@@ -537,20 +557,25 @@
   <div class="view-toggle-row">
     <button class="view-toggle active" id="toggleWeekView">週</button>
     <button class="view-toggle" id="toggleDayView">日</button>
+    <button class="view-toggle" id="toggleMonthView">月</button>
   </div>
 
   <div class="week-nav" id="weekNav">
     <button class="nav-btn" id="prevWeek">‹</button>
     <span id="weekLabel"></span>
     <button class="nav-btn" id="nextWeek">›</button>
-    <input type="date" id="jumpDate" class="jump-input">
+  </div>
+
+  <div class="week-nav" id="monthNav" style="display:none;">
+    <button class="nav-btn" id="prevMonth">‹</button>
+    <span id="monthLabel"></span>
+    <button class="nav-btn" id="nextMonth">›</button>
   </div>
 
   <div class="week-nav" id="dayNav" style="display:none;">
     <button class="nav-btn" id="prevDay">‹</button>
     <span id="dayLabel"></span>
     <button class="nav-btn" id="nextDay">›</button>
-    <input type="date" id="dayJumpDate" class="jump-input">
   </div>
 
   <div class="tool-row">
@@ -584,6 +609,8 @@
     </div>
 
     <div id="dayView" class="day-view" style="display:none;"></div>
+
+    <div id="monthView" class="month-view" style="display:none;"></div>
 
     <div class="side-col">
       <div class="schedule-panel" id="schedulePanel" role="button" tabindex="0">
@@ -638,6 +665,13 @@
     <div id="formPanel">
       <p id="modalLabel"></p>
       <input id="subjectInput" type="text" placeholder="授業名（例：Webプログラミング演習）" autocomplete="off">
+      <div id="intensiveBox" style="display:none;">
+        <p class="note" style="margin:0 0 10px;">休み期間なので、集中授業として登録します</p>
+        <div class="field-row" id="intensiveDaysRow">
+          <span style="font-size:13px;">連続する日数</span>
+          <select id="intensiveDays" style="width:auto; flex:none; margin:0; padding:8px;"></select>
+        </div>
+      </div>
 
       <div class="field-row">
         <input type="checkbox" id="ondemandCheck">
@@ -1232,18 +1266,23 @@
   // （前期・後期・年度をまたいで登録が混ざらないようにするため）
   function scheduleKey(day, period, refDate) {
     const date = refDate || weekStart;
+    // 集中授業は、日付＋時限をキーにして、通常の授業とは別に保存する
+    const exact = refDate ? new Date(refDate) : dateForDay(day);
+    const ikey = `intensive_${formatDateKey(exact)}_${period}`;
+    if (schedules[ikey]) return ikey; // 集中授業が登録されている日・時限
     if (!anyTermConfigured()) return `${day}-${period}`;
     const info = findActiveTermInfo(date);
     if (!info) return null;
-    if (weekOverlapsBreak(getMonday(date), info.config.breaks || [])) return null; // 休み期間中は登録しない
+    if (weekOverlapsBreak(getMonday(date), info.config.breaks || [])) return ikey; // 休み期間の週は、集中授業だけ登録できる
     return `${info.id}_${day}-${period}`;
   }
 
-  function countPresent(day, period) {
+  // 指定した曜日・時限で、いまの学期の範囲にある出席（present）または欠席（absent）の回数
+  function countStatus(day, period, status) {
     const range = getActiveTermRange();
     let count = 0;
     for (const key in attendance) {
-      if (attendance[key] !== 'present') continue;
+      if (attendance[key] !== status) continue;
       const [dateStr, periodStr] = key.split('_');
       if (Number(periodStr) !== period) continue;
       if (dayOfWeekFromDateStr(dateStr) !== day) continue;
@@ -1254,6 +1293,28 @@
       count++;
     }
     return count;
+  }
+  function countPresent(day, period) { return countStatus(day, period, 'present'); }
+
+  // 出欠の集計：通常の授業は学期の15回。集中授業は、同じ授業名で登録した日数を回数にする
+  function attendStats(day, period) {
+    const k = scheduleKey(day, period);
+    if (k && k.indexOf('intensive_') === 0) {
+      const entry = normalize(schedules[k]);
+      let present = 0, absent = 0, total = 0;
+      Object.keys(schedules).forEach(key => {
+        if (key.indexOf('intensive_') !== 0) return;
+        const e = normalize(schedules[key]);
+        if (!e || !entry || e.subject !== entry.subject) return;
+        const parts = key.split('_'); // intensive, 日付, 時限
+        total++;
+        const st = attendance[`${parts[1]}_${parts[2]}`];
+        if (st === 'present') present++;
+        if (st === 'absent') absent++;
+      });
+      return { present, absent, total };
+    }
+    return { present: countStatus(day, period, 'present'), absent: countStatus(day, period, 'absent'), total: TOTAL_SESSIONS };
   }
 
   // 以前のバージョンのデータ（文字列のみ／旧カラーコード／教室情報なし）にも対応する
@@ -1293,7 +1354,7 @@
     const notice = document.getElementById('outOfTermNotice');
     if (outOfTerm) {
       notice.textContent = inBreak
-        ? 'この週は休み期間（冬休みなど）のため、授業の登録・表示はできません'
+        ? 'この週は休み期間です。通常の授業は出ません（集中授業だけ登録できます）'
         : 'この週は前期・後期の期間外のため、授業の登録・表示はできません';
       notice.style.display = 'block';
     } else {
@@ -1323,7 +1384,7 @@
           const status = attendance[attendanceKey(d, p)];
           const dot = status ? `<span class="attend-dot ${status}"></span>` : '';
           const scheduleDot = hasScheduleFor(d, p) ? '<span class="schedule-mark"></span>' : '';
-          return `<td><button class="cell filled${ondemandClass}" style="${style}" title="${escapeHtml(entry.subject)}" data-day="${d}" data-period="${p}">${dot}${scheduleDot}<span class="cell-name">${wrapText(entry.subject)}</span><span class="cell-room">${roomText}</span></button></td>`;
+          return `<td><button class="cell filled${ondemandClass}${k.indexOf('intensive_') === 0 ? ' intensive' : ''}" style="${style}" title="${escapeHtml(entry.subject)}" data-day="${d}" data-period="${p}">${dot}${scheduleDot}<span class="cell-name">${wrapText(entry.subject)}</span><span class="cell-room">${roomText}</span></button></td>`;
         }
         return `<td><button class="cell" data-day="${d}" data-period="${p}"></button></td>`;
       }).join('');
@@ -1370,7 +1431,6 @@
     const yearPrefix = (info && info.config.year) ? `${info.config.year}年度 ` : '';
     document.getElementById('dayLabel').textContent =
       `${yearPrefix}${formatMD(date)}（${DAY_LABELS[selectedDayOfWeek]}）`;
-    document.getElementById('dayJumpDate').value = formatDateKey(date);
     document.getElementById('calMonth').textContent = `${date.getMonth() + 1}月`;
     document.getElementById('calYear').textContent = `${date.getFullYear()}年`;
 
@@ -1382,7 +1442,7 @@
     if (viewMode === 'day') {
       if (outOfTerm) {
         notice.textContent = inBreak
-          ? 'この日は休み期間（冬休みなど）のため、授業の登録・表示はできません'
+          ? 'この日は休み期間です。通常の授業は出ません（集中授業だけ登録できます）'
           : 'この日は前期・後期の期間外のため、授業の登録・表示はできません';
         notice.style.display = 'block';
       } else {
@@ -1422,9 +1482,9 @@
     // --- 授業：各時限の時間帯に表示する ---
     const events = [];
     const allDay = [];
-    if (!outOfTerm) {
+    {
       PERIODS.forEach(p => {
-        const k = scheduleKey(selectedDayOfWeek, p);
+        const k = scheduleKey(selectedDayOfWeek, p); // 休み期間でも、集中授業は表示する
         if (!k) return;
         const entry = normalize(schedules[k]);
         if (!entry) return; // 登録のない時限は表示しない
@@ -1533,7 +1593,7 @@
 
       return `<div class="timeline-event${cancelled ? ' cancelled' : ''}" style="${pos} ${look}" data-period="${p}">
         <span class="ev-title">${escapeHtml(entry.subject)}${dot}${scheduleDot}</span>
-        <span class="ev-sub">${escapeHtml(locationLine)}${(!cancelled && entry.teacher) ? ' ・ ' + escapeHtml(entry.teacher) : ''}</span>
+        <span class="ev-sub">${((scheduleKey(selectedDayOfWeek, p) || '').indexOf('intensive_') === 0) ? '集中授業 ・ ' : ''}${escapeHtml(locationLine)}${(!cancelled && entry.teacher) ? ' ・ ' + escapeHtml(entry.teacher) : ''}</span>
       </div>`;
     }).join('');
 
@@ -1606,6 +1666,7 @@
   }
 
   let current = null;
+  let formIsNew = true; // 授業の登録画面が、新規登録かどうか
 
   function openModal(day, period) {
     current = { day, period };
@@ -1628,6 +1689,8 @@
       `${formatMD(dateForDay(day))}（${DAY_LABELS[day]}）${period}限`;
 
     const cancelled = isCancelled(day, period);
+    const viewKey = scheduleKey(day, period);
+    const isInt = !!viewKey && viewKey.indexOf('intensive_') === 0;
 
     const weekOnly = !entry.isOndemand && isOndemandThisWeek(day, period);
     const locationLine = entry.isOndemand
@@ -1638,13 +1701,13 @@
 
     // 「その週だけオンデマンド」ボタン：いつもオンデマンドの授業と休講の日には出さない
     const odBtn = document.getElementById('ondemandWeekBtn');
-    odBtn.style.display = (entry.isOndemand || cancelled) ? 'none' : 'block';
+    odBtn.style.display = (entry.isOndemand || cancelled || isInt) ? 'none' : 'block';
     odBtn.textContent = weekOnly ? 'オンデマンドを解除する（通常に戻す）' : 'この週だけオンデマンドにする';
 
     const teacherLine = entry.teacher ? `<br>教員：${escapeHtml(entry.teacher)}` : '';
     document.getElementById('viewInfo').innerHTML = cancelled
       ? `<strong>${escapeHtml(entry.subject)}</strong>${teacherLine}<br><span class="badge" style="background:var(--border); color:var(--muted);">この日は休講</span>`
-      : `<strong>${escapeHtml(entry.subject)}</strong>${teacherLine}<br>${locationLine}`;
+      : `<strong>${escapeHtml(entry.subject)}</strong>${teacherLine}<br>${isInt ? '<span class="badge">集中授業</span><br>' : ''}${locationLine}`;
 
     // 休講中は出欠の記録対象にしないので出欠ボタンを隠す
     const attendRow = document.getElementById('attendPresent').parentElement;
@@ -1661,9 +1724,9 @@
   }
 
   function updateAttendCount(day, period) {
-    const present = countPresent(day, period);
+    const st = attendStats(day, period);
     document.getElementById('attendCount').textContent =
-      `出席 ${present} / ${TOTAL_SESSIONS} 回`;
+      `出席 ${st.present} / ${st.total} 回　欠席 ${st.absent} 回`;
   }
 
   function updateAttendButtons(status) {
@@ -1680,7 +1743,16 @@
     document.getElementById('formPanel').style.display = 'block';
 
     selectedColor = existing ? existing.color : PALETTE[0].id;
-    document.getElementById('modalLabel').textContent = `${DAY_LABELS[day]}曜 ${period}限 の授業`;
+    // 休み期間の週は、集中授業として登録する
+    const formKey = scheduleKey(day, period);
+    const isInt = !!formKey && formKey.indexOf('intensive_') === 0;
+    formIsNew = !existing;
+    document.getElementById('intensiveBox').style.display = isInt ? 'block' : 'none';
+    document.getElementById('intensiveDaysRow').style.display = (isInt && !existing) ? 'flex' : 'none';
+    document.getElementById('intensiveDays').value = '1';
+    document.getElementById('modalLabel').textContent = isInt
+      ? `${formatMD(dateForDay(day))}（${DAY_LABELS[day]}）${period}限 の集中授業`
+      : `${DAY_LABELS[day]}曜 ${period}限 の授業`;
     document.getElementById('subjectInput').value = existing ? existing.subject : '';
     document.getElementById('classroomInput').value = existing ? existing.classroom : '';
     document.getElementById('teacherInput').value = existing ? existing.teacher : '';
@@ -1718,6 +1790,8 @@
   function refreshView() {
     if (viewMode === 'day') {
       renderDayView();
+    } else if (viewMode === 'month') {
+      renderMonthView();
     } else {
       render();
     }
@@ -1756,6 +1830,16 @@
       teacher,
       isOndemand,
     };
+    // 集中授業：連続する日数を選んだときは、同じ時限で続く日にも登録する
+    if (k.indexOf('intensive_') === 0 && formIsNew) {
+      const n = Number(document.getElementById('intensiveDays').value) || 1;
+      for (let i = 1; i < n; i++) {
+        const d = dateForDay(current.day);
+        d.setDate(d.getDate() + i);
+        const ik = `intensive_${formatDateKey(d)}_${current.period}`;
+        if (!schedules[ik]) schedules[ik] = { ...schedules[k] };
+      }
+    }
     save();
     refreshView();
     closeModal();
@@ -2034,13 +2118,6 @@
     refreshView();
   });
 
-  document.getElementById('jumpDate').addEventListener('change', (e) => {
-    if (!e.target.value) return;
-    const [y, m, d] = e.target.value.split('-').map(Number);
-    weekStart = getMonday(new Date(y, m - 1, d));
-    render();
-  });
-
   document.getElementById('prevWeek').addEventListener('click', () => {
     weekStart.setDate(weekStart.getDate() - 7);
     weekStart = new Date(weekStart);
@@ -2057,19 +2134,108 @@
     viewMode = mode;
     document.getElementById('toggleWeekView').classList.toggle('active', mode === 'week');
     document.getElementById('toggleDayView').classList.toggle('active', mode === 'day');
+    document.getElementById('toggleMonthView').classList.toggle('active', mode === 'month');
     document.getElementById('weekNav').style.display = mode === 'week' ? 'flex' : 'none';
     document.getElementById('dayNav').style.display = mode === 'day' ? 'flex' : 'none';
+    document.getElementById('monthNav').style.display = mode === 'month' ? 'flex' : 'none';
     document.getElementById('weekTableWrap').style.display = mode === 'week' ? 'inline-block' : 'none';
     document.getElementById('dayView').style.display = mode === 'day' ? 'block' : 'none';
-    // 日別表示では、下に回り込む「スケジュール」「課題」の欄は出さない
+    document.getElementById('monthView').style.display = mode === 'month' ? 'block' : 'none';
+    // 日別・月別表示では、下に回り込む「スケジュール」「課題」の欄は出さない
     document.querySelector('.side-col').style.display = mode === 'week' ? 'flex' : 'none';
     document.getElementById('addScheduleDayBtn').style.display = mode === 'day' ? 'inline-block' : 'none';
     if (mode === 'week') {
       render();
-    } else {
+    } else if (mode === 'day') {
       renderDayView();
       scrollDayToFocus();
+    } else {
+      renderMonthView();
     }
+  }
+  document.getElementById('toggleMonthView').addEventListener('click', () => {
+    // 今見ている週の月から始める
+    monthCursor = new Date(dateForDay(selectedDayOfWeek).getFullYear(), dateForDay(selectedDayOfWeek).getMonth(), 1);
+    setViewMode('month');
+  });
+  document.getElementById('prevMonth').addEventListener('click', () => {
+    monthCursor = new Date(monthCursor.getFullYear(), monthCursor.getMonth() - 1, 1);
+    renderMonthView();
+  });
+  document.getElementById('nextMonth').addEventListener('click', () => {
+    monthCursor = new Date(monthCursor.getFullYear(), monthCursor.getMonth() + 1, 1);
+    renderMonthView();
+  });
+
+  // --- 月別カレンダー ---
+  let monthCursor = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+
+  // その日の予定（スケジュール→課題の順）。スケジュールは時刻順、終日は先頭
+  function monthEventsFor(dateStr) {
+    const list = [];
+    scheduleItems.forEach(item => {
+      const end = item.endDate || item.date;
+      if (item.date <= dateStr && dateStr <= end) {
+        list.push({ order: 0, key: item.time || '00:00', cls: '', text: item.text });
+      }
+    });
+    assignments.forEach(a => {
+      if (a.date !== dateStr) return;
+      const cls = a.submitted ? ' done' : (daysUntil(a.date) < 0 ? ' overdue' : '');
+      list.push({ order: 1, key: '', cls: ' assign' + cls, text: a.title });
+    });
+    list.sort((x, y) => x.order - y.order || x.key.localeCompare(y.key));
+    return list;
+  }
+
+  function renderMonthView() {
+    document.getElementById('outOfTermNotice').style.display = 'none';
+    const y = monthCursor.getFullYear();
+    const m = monthCursor.getMonth();
+    document.getElementById('calMonth').textContent = `${m + 1}月`;
+    document.getElementById('calYear').textContent = `${y}年`;
+    document.getElementById('monthLabel').textContent = `${y}年${m + 1}月`;
+
+    const offset = (new Date(y, m, 1).getDay() + 6) % 7; // 月曜始まり
+    const daysInMonth = new Date(y, m + 1, 0).getDate();
+    const rows = Math.ceil((offset + daysInMonth) / 7);
+    const todayKey = formatDateKey(new Date());
+
+    let html = '<div class="month-grid">';
+    ['月', '火', '水', '木', '金', '土', '日'].forEach(d => { html += `<div class="month-dow">${d}</div>`; });
+    for (let i = 0; i < rows * 7; i++) {
+      const dayNum = i - offset + 1;
+      if (dayNum < 1 || dayNum > daysInMonth) {
+        html += '<div class="month-cell blank"></div>';
+        continue;
+      }
+      const key = formatDateKey(new Date(y, m, dayNum));
+      const evs = monthEventsFor(key);
+      // 予定は3つまで。それ以上あるときは、2つ＋「+N」にする
+      let shown = evs;
+      let moreText = '';
+      if (evs.length > 3) {
+        shown = evs.slice(0, 2);
+        moreText = `+${evs.length - 2}`;
+      }
+      const pills = shown.map(e => `<div class="month-pill${e.cls}">${escapeHtml(e.text)}</div>`).join('') +
+        (moreText ? `<div class="month-pill more">${moreText}</div>` : '');
+      const cls = (key === todayKey ? ' today' : '') + (i % 7 >= 5 ? ' weekend' : '');
+      html += `<div class="month-cell${cls}" data-date="${key}"><div class="month-num"><span>${dayNum}</span></div>${pills}</div>`;
+    }
+    html += '</div>';
+
+    const box = document.getElementById('monthView');
+    box.innerHTML = html;
+    // 日付を押すと、その日の日別表示へ
+    box.querySelectorAll('.month-cell[data-date]').forEach(cell => {
+      cell.addEventListener('click', () => {
+        const d = parseDateInput(cell.dataset.date);
+        weekStart = getMonday(d);
+        selectedDayOfWeek = d.getDay() === 0 ? 7 : d.getDay();
+        setViewMode('day');
+      });
+    });
   }
   document.getElementById('toggleWeekView').addEventListener('click', () => setViewMode('week'));
   document.getElementById('toggleDayView').addEventListener('click', () => setViewMode('day'));
@@ -2091,15 +2257,6 @@
       weekStart.setDate(weekStart.getDate() + 7);
       weekStart = new Date(weekStart);
     }
-    renderDayView();
-    scrollDayToFocus();
-  });
-  document.getElementById('dayJumpDate').addEventListener('change', (e) => {
-    if (!e.target.value) return;
-    const date = parseDateInput(e.target.value);
-    const dow = dayOfWeekFromDateStr(e.target.value);
-    weekStart = getMonday(date);
-    selectedDayOfWeek = dow;
     renderDayView();
     scrollDayToFocus();
   });
@@ -2533,6 +2690,11 @@
   fillDateSelects('scheduleEndYearInput', 'scheduleEndMonthInput', 'scheduleEndDayInput', false);
   fillDateSelects('scheduleRepeatYear', 'scheduleRepeatMonth', 'scheduleRepeatDay', true);
   fillDateSelects('assignRepeatYear', 'assignRepeatMonth', 'assignRepeatDay', true);
+  // 集中授業：連続する日数（1〜14日）
+  (function () {
+    const sel = document.getElementById('intensiveDays');
+    for (let n = 1; n <= 14; n++) { const o = document.createElement('option'); o.value = String(n); o.textContent = `${n}日`; sel.appendChild(o); }
+  })();
 
   // prefix は '' （開始）または 'End' （終了）。年は今年が初期値で、選んだ年をそのまま使う
   function setScheduleFields(prefix, d) {
@@ -2745,6 +2907,9 @@
     if (viewMode === 'day') {
       renderDayView();
       scrollDayToFocus();
+    } else if (viewMode === 'month') {
+      monthCursor = new Date(now.getFullYear(), now.getMonth(), 1);
+      renderMonthView();
     } else {
       render();
     }
